@@ -2,7 +2,12 @@
 	import { onMount, tick } from 'svelte';
 	import { SenderSession } from '$lib/optical/sender-session';
 	import { TRANSFER_PROFILES } from '$lib/optical/profiles';
-	import type { RenderedTile, SenderMetrics, TransferProfile } from '$lib/optical/types';
+	import type {
+		ProtectionMode,
+		RenderedTile,
+		SenderMetrics,
+		TransferProfile
+	} from '$lib/optical/types';
 	import { MAX_FILE_SIZE, MIN_PASSPHRASE_LENGTH } from '$lib/optical/types';
 
 	let session: SenderSession | null = null;
@@ -10,6 +15,7 @@
 	let file = $state<File | null>(null);
 	let passphrase = $state('');
 	let confirmation = $state('');
+	let protection = $state<ProtectionMode>('passphrase');
 	let profile = $state<TransferProfile>('auto');
 	let metrics = $state<SenderMetrics | null>(null);
 	let tiles = $state<RenderedTile[]>([]);
@@ -65,14 +71,37 @@
 	async function prepare(): Promise<void> {
 		error = '';
 		if (!file) return void (error = 'Choose one file to send.');
-		if (passphrase.length < MIN_PASSPHRASE_LENGTH) {
+		if (protection === 'passphrase' && passphrase.length < MIN_PASSPHRASE_LENGTH) {
 			return void (error = `Use at least ${MIN_PASSPHRASE_LENGTH} characters for the passphrase.`);
 		}
-		if (passphrase !== confirmation)
+		if (protection === 'passphrase' && passphrase !== confirmation)
 			return void (error = 'The passphrase confirmation does not match.');
 		preparing = true;
 		try {
-			await session?.prepare(file, passphrase, profile);
+			await session?.prepare(
+				file,
+				protection === 'passphrase' ? { mode: 'passphrase', passphrase } : { mode: 'public' },
+				profile
+			);
+		} catch (cause) {
+			error = message(cause);
+		} finally {
+			preparing = false;
+		}
+	}
+
+	async function protectionChanged(next: ProtectionMode): Promise<void> {
+		protection = next;
+		error = '';
+		if (next === 'public') {
+			passphrase = '';
+			confirmation = '';
+		}
+		if (!prepared) return;
+		preparing = true;
+		try {
+			await session?.stop();
+			tiles = [];
 		} catch (cause) {
 			error = message(cause);
 		} finally {
@@ -151,8 +180,8 @@
 		<h1 class="page-title">Turn a file<br />into light.</h1>
 	</div>
 	<p class="lede">
-		Everything stays on this device. Droptic compresses, encrypts, and encodes your file before the
-		first frame appears.
+		Everything stays on this device. Choose who can receive the file, then Droptic compresses,
+		encrypts, and encodes it before the first frame appears.
 	</p>
 </section>
 
@@ -188,33 +217,66 @@
 		<div class="step-heading">
 			<span>02</span>
 			<div>
-				<h2>Lock it</h2>
-				<p>This secret is never transmitted.</p>
+				<h2>Choose access</h2>
+				<p>Passphrase protection is recommended.</p>
 			</div>
 		</div>
-		<div class="field-grid">
-			<div class="field">
-				<label for="passphrase">Passphrase</label>
+		<fieldset class="access-options" disabled={preparing || playing}>
+			<legend>Who can receive this file?</legend>
+			<label class:active={protection === 'passphrase'}>
 				<input
-					id="passphrase"
-					type="password"
-					bind:value={passphrase}
-					minlength={MIN_PASSPHRASE_LENGTH}
-					autocomplete="new-password"
-					placeholder="At least 12 characters"
+					type="radio"
+					name="protection"
+					value="passphrase"
+					bind:group={protection}
+					onchange={() => protectionChanged('passphrase')}
 				/>
-			</div>
-			<div class="field">
-				<label for="confirmation">Confirm passphrase</label>
+				<span
+					><strong>Passphrase protected <i>Recommended</i></strong><small
+						>Only someone with the passphrase can receive this file.</small
+					></span
+				>
+			</label>
+			<label class:active={protection === 'public'}>
 				<input
-					id="confirmation"
-					type="password"
-					bind:value={confirmation}
-					autocomplete="new-password"
-					placeholder="Type it again"
+					type="radio"
+					name="protection"
+					value="public"
+					bind:group={protection}
+					onchange={() => protectionChanged('public')}
 				/>
+				<span
+					><strong>Public</strong><small
+						>No passphrase required. Anyone who scans this signal can receive the file.</small
+					></span
+				>
+			</label>
+		</fieldset>
+		{#if protection === 'passphrase'}
+			<div class="field-grid passphrase-fields">
+				<div class="field">
+					<label for="passphrase">Passphrase</label>
+					<input
+						id="passphrase"
+						type="password"
+						bind:value={passphrase}
+						minlength={MIN_PASSPHRASE_LENGTH}
+						autocomplete="new-password"
+						placeholder="At least 12 characters"
+					/>
+				</div>
+				<div class="field">
+					<label for="confirmation">Confirm passphrase</label>
+					<input
+						id="confirmation"
+						type="password"
+						bind:value={confirmation}
+						autocomplete="new-password"
+						placeholder="Type it again"
+					/>
+				</div>
 			</div>
-		</div>
+		{/if}
 
 		<div class="section-rule"></div>
 		<div class="step-heading">
@@ -259,7 +321,11 @@
 
 	<div class="panel signal-panel" class:playing bind:this={signalPanel}>
 		<div class="signal-toolbar">
-			<span class:active={playing} class="status-pill">{metrics?.state ?? 'idle'}</span>
+			<span class:active={playing} class="status-pill"
+				>{metrics?.state ?? 'idle'} · {metrics?.protection === 'public'
+					? 'public'
+					: 'protected'}</span
+			>
 			<button
 				class="icon-button"
 				type="button"
@@ -309,8 +375,8 @@
 <aside class="privacy-note">
 	<span aria-hidden="true">◎</span>
 	<p>
-		<strong>No upload occurs.</strong> Large buffers live in a dedicated worker and the passphrase is
-		discarded when you stop.
+		<strong>No upload occurs.</strong> Public means anyone who scans the signal can receive the file;
+		it is never published online. Passphrases are discarded when you stop.
 	</p>
 </aside>
 
@@ -449,6 +515,62 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 12px;
+	}
+	.access-options {
+		display: grid;
+		gap: 10px;
+		padding: 0;
+		border: 0;
+	}
+	.access-options legend {
+		margin-bottom: 9px;
+		font-size: 0.73rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+	.access-options > label {
+		display: flex;
+		gap: 12px;
+		align-items: start;
+		padding: 15px;
+		border: 1.5px solid var(--line);
+		border-radius: 14px;
+		background: rgba(255, 255, 255, 0.45);
+		cursor: pointer;
+	}
+	.access-options > label.active {
+		border-color: var(--ink);
+		background: rgba(203, 255, 87, 0.14);
+	}
+	.access-options input {
+		width: 18px;
+		height: 18px;
+		margin: 2px 0 0;
+		accent-color: var(--ink);
+	}
+	.access-options span {
+		display: grid;
+		gap: 4px;
+	}
+	.access-options strong {
+		font-size: 0.88rem;
+	}
+	.access-options strong i {
+		margin-left: 5px;
+		padding: 3px 6px;
+		border-radius: 999px;
+		background: var(--acid);
+		font-size: 0.58rem;
+		font-style: normal;
+		text-transform: uppercase;
+	}
+	.access-options small {
+		color: var(--muted);
+		line-height: 1.4;
+	}
+	.passphrase-fields {
+		margin-top: 14px;
 	}
 	.setup-actions,
 	.playback-actions,

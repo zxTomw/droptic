@@ -82,20 +82,14 @@ export class ReceiverSession {
 		await releaseScreenWakeLock();
 	}
 
-	async complete(passphrase: string): Promise<ReceivedFile> {
+	async complete(passphrase?: string): Promise<ReceivedFile> {
 		this.metrics = { ...this.metrics, state: 'decrypting', error: undefined };
 		this.emit();
 		const response = await this.request({ type: 'complete', passphrase });
 		if (response.type !== 'completed')
 			throw new Error('The receiver returned an unexpected response.');
-		const manifest = JSON.parse(response.manifest);
-		const file = new File([response.bytes], response.filename, {
-			type: response.mimeType || 'application/octet-stream',
-			lastModified: response.lastModified
-		});
-		const receivedFile = { file, manifest, sessionId: response.sessionId } as ReceivedFile;
-		this.metrics = { ...this.metrics, state: 'complete', progress: 1 };
-		this.emit(receivedFile);
+		const receivedFile = this.receiveCompleted(response);
+		await this.stopCamera();
 		return receivedFile;
 	}
 
@@ -105,11 +99,23 @@ export class ReceiverSession {
 		return response.sessions;
 	}
 
-	async resume(sessionId: string): Promise<void> {
-		const response = await this.request({ type: 'resume', sessionId });
+	async resume(sessionId: string): Promise<ReceivedFile | null> {
+		let response: ReceiverWorkerResponse;
+		try {
+			response = await this.request({ type: 'resume', sessionId });
+		} catch (error) {
+			if (this.metrics.protection === 'public') await this.stopCamera();
+			throw error;
+		}
+		if (response.type === 'completed') {
+			const receivedFile = this.receiveCompleted(response);
+			await this.stopCamera();
+			return receivedFile;
+		}
 		if (response.type !== 'resumed') throw new Error('Could not resume the transfer.');
 		this.metrics = response.metrics;
 		this.emit();
+		return null;
 	}
 
 	async clear(sessionId: string): Promise<void> {
@@ -169,13 +175,32 @@ export class ReceiverSession {
 			if (response.type === 'scan-result' || response.type === 'reconstructed') {
 				this.metrics = response.metrics;
 				this.emit();
+			} else if (response.type === 'completed') {
+				this.receiveCompleted(response);
+				await this.stopCamera();
 			}
 		} catch (error) {
+			const publicAutoFailure = this.metrics.protection === 'public';
 			this.metrics = { ...this.metrics, state: 'error', error: message(error) };
 			this.emit();
+			if (publicAutoFailure) await this.stopCamera();
 		} finally {
 			this.scanBusy = false;
 		}
+	}
+
+	private receiveCompleted(
+		response: Extract<ReceiverWorkerResponse, { type: 'completed' }>
+	): ReceivedFile {
+		const manifest = JSON.parse(response.manifest);
+		const file = new File([response.bytes], response.filename, {
+			type: response.mimeType || 'application/octet-stream',
+			lastModified: response.lastModified
+		});
+		const receivedFile = { file, manifest, sessionId: response.sessionId } as ReceivedFile;
+		this.metrics = { ...this.metrics, state: 'complete', progress: 1 };
+		this.emit(receivedFile);
+		return receivedFile;
 	}
 
 	private request(
@@ -186,8 +211,10 @@ export class ReceiverSession {
 		const requestId = ++this.requestId;
 		return new Promise((resolve, reject) => {
 			this.pending.set(requestId, (response) => {
-				if (response.type === 'error') reject(new Error(response.message));
-				else resolve(response);
+				if (response.type === 'error') {
+					if (response.metrics) this.metrics = response.metrics;
+					reject(new Error(response.message));
+				} else resolve(response);
 			});
 			worker.postMessage({ ...request, requestId } as ReceiverWorkerRequest, transfer);
 		});

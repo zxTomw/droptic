@@ -7,6 +7,7 @@ export const FRAME_HEADER_SIZE = 28;
 export const FRAME_CRC_SIZE = 4;
 export const FRAME_OVERHEAD = FRAME_HEADER_SIZE + FRAME_CRC_SIZE;
 export const BOOTSTRAP_PAYLOAD_SIZE = 52;
+export const PUBLIC_TRANSFER_CAPABILITY = 1;
 const MAX_CIPHERTEXT_LENGTH = 25 * 1024 * 1024 + 64 * 1024;
 
 export type DropticFrameKind = 'bootstrap' | 'data';
@@ -82,7 +83,7 @@ export function serializeBootstrap(value: DropticBootstrapV1): Uint8Array {
 	bytes[17] = value.kdf.hashLength;
 	bytes.set(value.salt, 20);
 	bytes.set(value.nonce, 36);
-	view.setUint32(48, 0, true); // Reserved capabilities bitmap.
+	view.setUint32(48, value.protection === 'public' ? PUBLIC_TRANSFER_CAPABILITY : 0, true);
 	return bytes;
 }
 
@@ -113,9 +114,11 @@ export function parseBootstrap(bytes: Uint8Array): DropticBootstrapV1 {
 		throw new Error('Unsupported optical profile.');
 	if (iterations !== 3 || memoryKiB !== 64 * 1024 || parallelism !== 1)
 		throw new Error('Unsupported Argon2id parameters.');
-	if (capabilities !== 0) throw new Error('Unsupported protocol capabilities.');
+	if ((capabilities & ~PUBLIC_TRANSFER_CAPABILITY) !== 0)
+		throw new Error('Unsupported protocol capabilities.');
 	return {
 		version: 1,
+		protection: capabilities === PUBLIC_TRANSFER_CAPABILITY ? 'public' : 'passphrase',
 		ciphertextLength,
 		maxTransportPayloadSize: transportSize,
 		repairPercent,

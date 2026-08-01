@@ -11,8 +11,10 @@ import type {
 	DropticBootstrapV1,
 	EncryptedManifestV1,
 	PreparedTransfer,
+	TransferProtection,
 	TransferProfileConfig
 } from './types';
+import { MAX_FILE_SIZE } from './types';
 import { raptorTransportSize } from './profiles';
 
 export const DEFAULT_KDF_PARAMETERS: Argon2Parameters = {
@@ -27,7 +29,7 @@ export interface PrepareEncryptedTransferInput {
 	filename: string;
 	mimeType: string;
 	lastModified: number;
-	passphrase: string;
+	protection: TransferProtection;
 	profile: TransferProfileConfig;
 	kdf?: Argon2Parameters;
 }
@@ -53,6 +55,7 @@ export async function prepareEncryptedTransfer(
 	const kdf = input.kdf ?? DEFAULT_KDF_PARAMETERS;
 	const bootstrap: DropticBootstrapV1 = {
 		version: 1,
+		protection: input.protection.mode,
 		ciphertextLength: plaintext.length + 16,
 		maxTransportPayloadSize: raptorTransportSize(input.profile),
 		repairPercent: input.profile.repairPercent,
@@ -64,7 +67,10 @@ export async function prepareEncryptedTransfer(
 		salt,
 		nonce
 	};
-	const key = await deriveEncryptionKey(input.passphrase, salt, kdf);
+	const key =
+		input.protection.mode === 'passphrase'
+			? await deriveEncryptionKey(input.protection.passphrase, salt, kdf)
+			: await derivePublicKey(sessionId, salt);
 	const ciphertext = new Uint8Array(
 		await crypto.subtle.encrypt(
 			{
@@ -88,11 +94,16 @@ export async function prepareEncryptedTransfer(
 
 export async function decryptTransfer(
 	ciphertext: Uint8Array,
-	passphrase: string,
+	passphrase: string | undefined,
 	sessionId: Uint8Array,
 	bootstrap: DropticBootstrapV1
 ): Promise<{ manifest: EncryptedManifestV1; bytes: Uint8Array }> {
-	const key = await deriveEncryptionKey(passphrase, bootstrap.salt, bootstrap.kdf);
+	if (bootstrap.protection === 'passphrase' && !passphrase)
+		throw new Error('Enter the passphrase to unlock this transfer.');
+	const key =
+		bootstrap.protection === 'passphrase'
+			? await deriveEncryptionKey(passphrase!, bootstrap.salt, bootstrap.kdf)
+			: await derivePublicKey(sessionId, bootstrap.salt);
 	let plaintext: Uint8Array;
 	try {
 		plaintext = new Uint8Array(
@@ -107,12 +118,18 @@ export async function decryptTransfer(
 			)
 		);
 	} catch {
-		throw new Error('The passphrase is incorrect or the optical transfer was modified.');
+		throw new Error(
+			bootstrap.protection === 'passphrase'
+				? 'The passphrase is incorrect or the optical transfer was modified.'
+				: 'The public transfer failed its integrity check.'
+		);
 	}
 
 	const parsed = parseContainer(plaintext);
 	const bytes =
-		parsed.manifest.compression === 'gzip' ? await decompress(parsed.bytes) : parsed.bytes;
+		parsed.manifest.compression === 'gzip'
+			? await decompress(parsed.bytes, parsed.manifest.originalSize)
+			: parsed.bytes;
 	if (bytes.length !== parsed.manifest.originalSize)
 		throw new Error('Received file size does not match its manifest.');
 	const digest = bytesToHex(
@@ -121,6 +138,16 @@ export async function decryptTransfer(
 	if (digest !== parsed.manifest.sha256)
 		throw new Error('Received file failed its SHA-256 integrity check.');
 	return { manifest: parsed.manifest, bytes };
+}
+
+async function derivePublicKey(sessionId: Uint8Array, salt: Uint8Array): Promise<CryptoKey> {
+	const domain = utf8('Droptic public transfer key v1\0');
+	const material = new Uint8Array(domain.length + sessionId.length + salt.length);
+	material.set(domain, 0);
+	material.set(sessionId, domain.length);
+	material.set(salt, domain.length + sessionId.length);
+	const keyBytes = await crypto.subtle.digest('SHA-256', cryptoBytes(material));
+	return crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
 export async function deriveEncryptionKey(
@@ -173,6 +200,7 @@ function validateManifest(value: EncryptedManifestV1): void {
 		typeof value.mimeType !== 'string' ||
 		!Number.isInteger(value.originalSize) ||
 		value.originalSize < 0 ||
+		value.originalSize > MAX_FILE_SIZE ||
 		!/^[0-9a-f]{64}$/.test(value.sha256) ||
 		(value.compression !== 'none' && value.compression !== 'gzip')
 	) {
@@ -199,18 +227,38 @@ async function maybeCompress(
 		: { bytes: bytes.slice(), compression: 'none' };
 }
 
-async function decompress(bytes: Uint8Array): Promise<Uint8Array> {
+async function decompress(bytes: Uint8Array, expectedSize: number): Promise<Uint8Array> {
 	if (!('DecompressionStream' in globalThis))
 		throw new Error('This browser cannot decompress the received file.');
-	return streamTransform(bytes, new DecompressionStream('gzip'));
+	return streamTransform(bytes, new DecompressionStream('gzip'), expectedSize);
 }
 
 async function streamTransform(
 	bytes: Uint8Array,
-	transform: CompressionStream | DecompressionStream
+	transform: CompressionStream | DecompressionStream,
+	maxOutputBytes?: number
 ): Promise<Uint8Array> {
 	const source = new Blob([bytes as BlobPart]).stream().pipeThrough(transform);
-	return new Uint8Array(await new Response(source).arrayBuffer());
+	const reader = source.getReader();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		length += value.byteLength;
+		if (maxOutputBytes !== undefined && length > maxOutputBytes) {
+			await reader.cancel();
+			throw new Error('Decompressed data exceeds the declared file size.');
+		}
+		chunks.push(value);
+	}
+	const output = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		output.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return output;
 }
 
 function isLikelyCompressible(mimeType: string, filename: string): boolean {

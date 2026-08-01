@@ -72,7 +72,10 @@
 			<span class="choice-number">A</span>
 			<div class="choice-icon upload-icon" aria-hidden="true">↑</div>
 			<h3>Sender</h3>
-			<p>Choose a file, lock it with a passphrase, and turn your screen into the transmitter.</p>
+			<p>
+				Choose a file, protect it with a passphrase or make it publicly scannable, and turn your
+				screen into the transmitter.
+			</p>
 			<strong>Start sending <span>→</span></strong>
 		</a>
 		<a href={resolve('/receive')} class="choice-card receive-card">

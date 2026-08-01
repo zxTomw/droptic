@@ -36,6 +36,7 @@ interface ReceiverState {
 	ciphertext: Uint8Array | null;
 	startedAt: number;
 	acceptedBytes: number;
+	autoCompletionAttempted: boolean;
 }
 
 let state: ReceiverState | null = null;
@@ -105,6 +106,15 @@ async function scan(request: Extract<ReceiverWorkerRequest, { type: 'scan' }>): 
 	const current = state
 		? metrics(state.ciphertext ? 'reconstructed' : 'receiving')
 		: emptyMetrics();
+	if (
+		state?.ciphertext &&
+		state.bootstrap.protection === 'public' &&
+		!state.autoCompletionAttempted
+	) {
+		state.autoCompletionAttempted = true;
+		await complete(request.requestId);
+		return;
+	}
 	post({
 		type: state?.ciphertext ? 'reconstructed' : 'scan-result',
 		requestId: request.requestId,
@@ -133,7 +143,8 @@ async function acceptFrame(frame: DropticFrameV1, rawBytes: Uint8Array): Promise
 				rejected: 0,
 				ciphertext: null,
 				startedAt: performance.now(),
-				acceptedBytes: 0
+				acceptedBytes: 0,
+				autoCompletionAttempted: false
 			};
 			await persistSession(sessionRecord(), rawBytes);
 			const waiting = pending.get(sessionIdString) ?? [];
@@ -171,9 +182,8 @@ async function acceptDataFrame(frame: DropticFrameV1, rawBytes: Uint8Array): Pro
 	}
 }
 
-async function complete(requestId: number, passphrase: string): Promise<void> {
-	if (!state?.ciphertext)
-		throw new Error('Keep scanning until the encrypted file is fully reconstructed.');
+async function complete(requestId: number, passphrase?: string): Promise<void> {
+	if (!state?.ciphertext) throw new Error('Keep scanning until the file is fully reconstructed.');
 	const decrypted = await decryptTransfer(
 		state.ciphertext,
 		passphrase,
@@ -216,7 +226,8 @@ async function resume(requestId: number, sessionId: string): Promise<void> {
 		rejected: 0,
 		ciphertext: null,
 		startedAt: performance.now(),
-		acceptedBytes: 0
+		acceptedBytes: 0,
+		autoCompletionAttempted: false
 	};
 	for (const rawFrame of persisted.frames) {
 		const frame = parseFrame(rawFrame);
@@ -228,6 +239,11 @@ async function resume(requestId: number, sessionId: string): Promise<void> {
 			state.ciphertext = decoded.slice(0, bootstrap.ciphertextLength);
 			break;
 		}
+	}
+	if (state.ciphertext && bootstrap.protection === 'public') {
+		state.autoCompletionAttempted = true;
+		await complete(requestId);
+		return;
 	}
 	post({
 		type: 'resumed',
@@ -266,6 +282,7 @@ function metrics(status: ReceiverMetrics['state'], error?: string): ReceiverMetr
 		throughputBytesPerSecond: state.acceptedBytes / elapsedSeconds,
 		progress: state.ciphertext ? 1 : Math.min(0.99, state.accepted.size / expected),
 		ciphertextLength: state.bootstrap.ciphertextLength,
+		protection: state.bootstrap.protection,
 		error
 	};
 }

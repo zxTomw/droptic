@@ -37,6 +37,44 @@ test('a file is encrypted, RaptorQ encoded, and rendered by the sender worker', 
 	await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 });
 
+test('public access is an explicit keyboard choice and needs no passphrase', async ({ page }) => {
+	test.setTimeout(90_000);
+	await page.goto('/send');
+	const protectedOption = page.getByRole('radio', { name: /passphrase protected/i });
+	const publicOption = page.getByRole('radio', { name: /^public/i });
+	await expect(protectedOption).toBeChecked();
+	await expect(page.getByLabel('Passphrase', { exact: true })).toBeVisible();
+	await page.getByLabel('Passphrase', { exact: true }).fill('temporary secret phrase');
+	await page.getByLabel('Confirm passphrase').fill('temporary secret phrase');
+
+	await protectedOption.focus();
+	await page.keyboard.press('ArrowDown');
+	await expect(publicOption).toBeChecked();
+	await expect(page.getByLabel('Passphrase', { exact: true })).toHaveCount(0);
+	await protectedOption.check();
+	await expect(page.getByLabel('Passphrase', { exact: true })).toHaveValue('');
+	await expect(page.getByLabel('Confirm passphrase')).toHaveValue('');
+	await publicOption.check();
+
+	await page.locator('input[type="file"]').setInputFiles({
+		name: 'public-note.txt',
+		mimeType: 'text/plain',
+		buffer: Buffer.from('Anyone who scans this signal can receive it.')
+	});
+	await page.getByRole('button', { name: 'Prepare signal' }).click();
+	await expect(page.getByRole('button', { name: 'Start playback' })).toBeVisible({
+		timeout: 60_000
+	});
+	await expect(page.getByText(/ready · public/i)).toBeVisible();
+
+	await protectedOption.check();
+	await expect(page.getByRole('button', { name: 'Prepare signal' })).toBeEnabled();
+	await page.getByLabel('Passphrase', { exact: true }).fill('correct horse battery staple');
+	await page.getByLabel('Confirm passphrase').fill('correct horse battery staple');
+	await page.getByRole('button', { name: 'Prepare signal' }).click();
+	await expect(page.getByText(/ready · protected/i)).toBeVisible({ timeout: 60_000 });
+});
+
 test('the precached application launches without a network connection', async ({
 	page,
 	context,
