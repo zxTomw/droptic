@@ -10,7 +10,23 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			csp: {
+				mode: 'hash',
+				directives: {
+					'default-src': ['self'],
+					'base-uri': ['self'],
+					'object-src': ['none'],
+					'form-action': ['self'],
+					'script-src': ['self', 'wasm-unsafe-eval'],
+					'style-src': ['self', 'unsafe-inline'],
+					'img-src': ['self', 'data:', 'blob:'],
+					'media-src': ['self', 'blob:'],
+					'worker-src': ['self', 'blob:'],
+					'connect-src': ['self'],
+					'manifest-src': ['self']
+				}
+			}
 		})
 	],
 	test: {
