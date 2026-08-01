@@ -34,7 +34,8 @@
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.60.1",
 		"vite": "^8.0.16",
-		"vitest": "^4.1.8"
+		"vitest": "^4.1.8",
+		"wrangler": "4.118.0"
 	},
 	"dependencies": {
 		"@raptorqr/core": "0.1.1",
