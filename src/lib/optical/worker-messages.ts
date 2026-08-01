@@ -3,6 +3,7 @@ import type {
 	RenderedTile,
 	ResumableSession,
 	SenderMetrics,
+	TransferProtection,
 	TransferProfileConfig
 } from './types';
 
@@ -14,7 +15,7 @@ export type SenderWorkerRequest =
 			filename: string;
 			mimeType: string;
 			lastModified: number;
-			passphrase: string;
+			protection: TransferProtection;
 			profile: TransferProfileConfig;
 	  }
 	| { type: 'render-next'; requestId: number }
@@ -41,7 +42,7 @@ export type ReceiverWorkerRequest =
 			height: number;
 			maxSymbols: number;
 	  }
-	| { type: 'complete'; requestId: number; passphrase: string }
+	| { type: 'complete'; requestId: number; passphrase?: string }
 	| { type: 'list-sessions'; requestId: number }
 	| { type: 'resume'; requestId: number; sessionId: string }
 	| { type: 'clear'; requestId: number; sessionId: string }

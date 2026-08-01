@@ -52,7 +52,7 @@ async function prepare(request: Extract<SenderWorkerRequest, { type: 'prepare' }
 		filename: request.filename,
 		mimeType: request.mimeType,
 		lastModified: request.lastModified,
-		passphrase: request.passphrase,
+		protection: request.protection,
 		profile: request.profile
 	});
 	const encoded = await encodeRaptorQPackets(
@@ -97,6 +97,7 @@ async function prepare(request: Extract<SenderWorkerRequest, { type: 'prepare' }
 	const metrics: SenderMetrics = {
 		state: 'ready',
 		profile: request.profile,
+		protection: request.protection.mode,
 		filename: prepared.manifest.filename,
 		originalSize: prepared.manifest.originalSize,
 		transmittedBytes: 0,

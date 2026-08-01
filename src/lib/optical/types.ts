@@ -1,6 +1,9 @@
 export const MAX_FILE_SIZE = 25 * 1024 * 1024;
 export const MIN_PASSPHRASE_LENGTH = 12;
 
+export type ProtectionMode = 'passphrase' | 'public';
+export type TransferProtection = { mode: 'passphrase'; passphrase: string } | { mode: 'public' };
+
 export type TransferProfile = 'auto' | 'reliable' | 'balanced' | 'fast' | 'safe';
 export type ResolvedTransferProfile = Exclude<TransferProfile, 'auto'>;
 
@@ -35,6 +38,7 @@ export interface Argon2Parameters {
 
 export interface DropticBootstrapV1 {
 	version: 1;
+	protection: ProtectionMode;
 	ciphertextLength: number;
 	maxTransportPayloadSize: number;
 	repairPercent: number;
@@ -58,6 +62,7 @@ export interface PreparedTransfer {
 export interface SenderMetrics {
 	state: 'idle' | 'preparing' | 'ready' | 'playing' | 'paused' | 'stopped' | 'error';
 	profile: TransferProfileConfig;
+	protection: ProtectionMode;
 	filename?: string;
 	originalSize?: number;
 	transmittedBytes: number;
@@ -93,6 +98,7 @@ export interface ReceiverMetrics {
 	throughputBytesPerSecond: number;
 	progress: number;
 	ciphertextLength?: number;
+	protection?: ProtectionMode;
 	error?: string;
 }
 

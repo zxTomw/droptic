@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	BOOTSTRAP_PAYLOAD_SIZE,
+	bytesToHex,
 	parseBootstrap,
 	parseFrame,
 	sanitizeFilename,
@@ -48,6 +49,7 @@ describe('DropticBootstrapV1', () => {
 	it('round-trips 32-bit file sizes and cryptographic parameters', () => {
 		const value: DropticBootstrapV1 = {
 			version: 1,
+			protection: 'passphrase',
 			ciphertextLength: 25 * 1024 * 1024 + 419,
 			maxTransportPayloadSize: 910,
 			repairPercent: 35,
@@ -62,6 +64,57 @@ describe('DropticBootstrapV1', () => {
 		const encoded = serializeBootstrap(value);
 		expect(encoded).toHaveLength(BOOTSTRAP_PAYLOAD_SIZE);
 		expect(parseBootstrap(encoded)).toEqual(value);
+	});
+
+	it.each([
+		['passphrase', '00000000'],
+		['public', '01000000']
+	] as const)('preserves the canonical %s bootstrap vector', (protection, capabilityHex) => {
+		const encoded = serializeBootstrap({
+			version: 1,
+			protection,
+			ciphertextLength: 0x01020304,
+			maxTransportPayloadSize: 902,
+			repairPercent: 35,
+			compression: 'gzip',
+			qrVersion: 20,
+			tileCount: 2,
+			fps: 20,
+			kdf: { memoryKiB: 65536, iterations: 3, parallelism: 1, hashLength: 32 },
+			salt: new Uint8Array(16).fill(7),
+			nonce: new Uint8Array(12).fill(9)
+		});
+		expect(bytesToHex(encoded)).toBe(
+			'0403020186032301140214030000010001200000' +
+				'07070707070707070707070707070707' +
+				'090909090909090909090909' +
+				capabilityHex
+		);
+		expect(parseBootstrap(encoded).protection).toBe(protection);
+	});
+
+	it('rejects truncated, unsafe, and unknown bootstrap values', () => {
+		const encoded = serializeBootstrap({
+			version: 1,
+			protection: 'public',
+			ciphertextLength: 1024,
+			maxTransportPayloadSize: 902,
+			repairPercent: 35,
+			compression: 'none',
+			qrVersion: 15,
+			tileCount: 1,
+			fps: 10,
+			kdf: { memoryKiB: 65536, iterations: 3, parallelism: 1, hashLength: 32 },
+			salt: new Uint8Array(16),
+			nonce: new Uint8Array(12)
+		});
+		expect(() => parseBootstrap(encoded.slice(0, -1))).toThrow(/payload size/i);
+		const unsafeKdf = encoded.slice();
+		unsafeKdf[11] = 2;
+		expect(() => parseBootstrap(unsafeKdf)).toThrow(/Argon2id parameters/i);
+		const unknownCapability = encoded.slice();
+		unknownCapability[48] = 2;
+		expect(() => parseBootstrap(unknownCapability)).toThrow(/capabilities/i);
 	});
 });
 

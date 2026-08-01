@@ -73,8 +73,9 @@
 	async function resume(item: ResumableSession): Promise<void> {
 		error = '';
 		try {
-			await session?.resume(item.sessionId);
-			await startCamera();
+			const resumedFile = (await session?.resume(item.sessionId)) ?? null;
+			if (resumedFile) received = resumedFile;
+			else await startCamera();
 		} catch (cause) {
 			error = message(cause);
 		}
@@ -140,7 +141,7 @@
 	</div>
 	<p class="lede">
 		Point this device at a Droptic signal. Missed frames are fine—the file appears only after
-		decryption and a byte-for-byte integrity check.
+		decryption and a byte-for-byte integrity check. Public signals open automatically.
 	</p>
 </section>
 
@@ -204,9 +205,11 @@
 			</div>
 			{#if metrics.sessionId}<p class="session-code">
 					Session <code>{metrics.sessionId.slice(0, 8)}</code> · {metrics.duplicatePackets} duplicates
-					· {metrics.rejectedPackets} rejected
+					· {metrics.rejectedPackets} rejected · {metrics.protection === 'public'
+						? 'public'
+						: 'protected'}
 				</p>{/if}
-			{#if reconstructed && !received}
+			{#if reconstructed && !received && metrics.protection !== 'public'}
 				<div class="unlock-box">
 					<div>
 						<strong>Frames reconstructed.</strong>
@@ -280,8 +283,8 @@
 <aside class="privacy-note">
 	<span aria-hidden="true">◎</span>
 	<p>
-		<strong>Encrypted recovery only.</strong> Partial optical frames may be stored for 24 hours. Passphrases,
-		plaintext, and completed files are never persisted.
+		<strong>Encrypted partial recovery only.</strong> Optical frames may be stored for 24 hours, including
+		public transfers whose key is not secret. Passphrases, plaintext, and completed files are never persisted.
 	</p>
 </aside>
 

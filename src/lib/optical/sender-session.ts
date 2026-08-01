@@ -1,6 +1,6 @@
 import { resolveTransferProfile } from './profiles';
 import { acquireScreenWakeLock, releaseScreenWakeLock } from './wake-lock';
-import type { RenderedTile, SenderMetrics, TransferProfile } from './types';
+import type { RenderedTile, SenderMetrics, TransferProfile, TransferProtection } from './types';
 import { MAX_FILE_SIZE, MIN_PASSPHRASE_LENGTH } from './types';
 import type { SenderWorkerRequest, SenderWorkerResponse } from './worker-messages';
 
@@ -26,11 +26,12 @@ export class SenderSession {
 	private playing = false;
 	private rendering = false;
 	private file: File | null = null;
-	private passphrase = '';
+	private protection: TransferProtection | null = null;
 	private selectedProfile: TransferProfile = 'auto';
 	private metrics: SenderMetrics = {
 		state: 'idle',
 		profile: resolveTransferProfile('reliable'),
+		protection: 'passphrase',
 		transmittedBytes: 0,
 		packetCount: 0,
 		sourcePacketCount: 0,
@@ -45,17 +46,27 @@ export class SenderSession {
 		return () => this.listeners.delete(listener);
 	}
 
-	async prepare(file: File, passphrase: string, profile: TransferProfile): Promise<void> {
+	async prepare(
+		file: File,
+		protection: TransferProtection,
+		profile: TransferProfile
+	): Promise<void> {
 		if (file.size > MAX_FILE_SIZE) throw new Error('Droptic supports files up to 25 MiB.');
-		if (passphrase.length < MIN_PASSPHRASE_LENGTH) {
+		if (protection.mode === 'passphrase' && protection.passphrase.length < MIN_PASSPHRASE_LENGTH) {
 			throw new Error(`Use a passphrase with at least ${MIN_PASSPHRASE_LENGTH} characters.`);
 		}
 		this.pause();
 		this.file = file;
-		this.passphrase = passphrase;
+		this.protection = protection;
 		this.selectedProfile = profile;
 		const resolved = resolveTransferProfile(profile, browserCapabilities());
-		this.metrics = { ...this.metrics, state: 'preparing', profile: resolved, error: undefined };
+		this.metrics = {
+			...this.metrics,
+			state: 'preparing',
+			profile: resolved,
+			protection: protection.mode,
+			error: undefined
+		};
 		this.emit();
 		const bytes = await file.arrayBuffer();
 		const response = await this.request(
@@ -65,7 +76,7 @@ export class SenderSession {
 				filename: file.name,
 				mimeType: file.type,
 				lastModified: file.lastModified,
-				passphrase,
+				protection,
 				profile: resolved
 			},
 			[bytes]
@@ -99,9 +110,9 @@ export class SenderSession {
 	}
 
 	async restart(profile: TransferProfile): Promise<void> {
-		if (!this.file || !this.passphrase)
+		if (!this.file || !this.protection)
 			throw new Error('There is no prepared transfer to restart.');
-		await this.prepare(this.file, this.passphrase, profile);
+		await this.prepare(this.file, this.protection, profile);
 	}
 
 	async stop(): Promise<void> {
@@ -117,7 +128,7 @@ export class SenderSession {
 		this.worker = null;
 		this.pending.clear();
 		this.file = null;
-		this.passphrase = '';
+		this.protection = null;
 		this.metrics = { ...this.metrics, state: 'stopped' };
 		this.emit();
 		await releaseScreenWakeLock();
