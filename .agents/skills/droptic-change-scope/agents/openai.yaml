@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Droptic Change Scope'
+  short_description: 'Classify Droptic changes and select quality gates'
+  default_prompt: 'Use $droptic-change-scope to classify this change and list the required quality gates.'

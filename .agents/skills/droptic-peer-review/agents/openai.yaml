@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Droptic Peer Review'
+  short_description: 'Perform an independent risk-focused change review'
+  default_prompt: 'Use $droptic-peer-review to independently review this Droptic change.'
+
+policy:
+  allow_implicit_invocation: false

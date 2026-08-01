@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
 	webServer: {
@@ -6,5 +6,9 @@ export default defineConfig({
 		url: 'http://127.0.0.1:4173'
 	},
 	use: { baseURL: 'http://127.0.0.1:4173' },
+	projects: [
+		{ name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+		{ name: 'webkit', use: { ...devices['Desktop Safari'] } }
+	],
 	testMatch: '**/*.e2e.{ts,js}'
 });

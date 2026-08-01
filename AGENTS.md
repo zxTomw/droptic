@@ -15,8 +15,14 @@ Use Bun and preserve `bun.lock`.
 - `bun run test:unit` runs Vitest unit tests.
 - `bun run test:e2e` builds the app, starts the preview server, and runs Playwright.
 - `bun run build` creates the static production site in `build/`.
+- `bun run quality:classify --base <sha> --head <sha>` selects tiered gates.
+- `bun run verify:fast`, `verify:browser`, and `verify:deploy` run the standardized gates.
 
 Run `bun run check`, `bun run lint`, and relevant tests before submitting changes.
+
+## Agent Quality Workflow
+
+Before changing code or configuration, use `.agents/skills/droptic-change-scope` to classify the diff. Apply `droptic-optical-safety` when optical code changes and `droptic-pwa-compat` for routes, browser APIs, workers, CSP, or offline behavior. Run the selected `verify:*` commands, then assign `droptic-peer-review` to a separate agent for optical, security, dependency, storage, or browser-platform work. The implementing agent must not self-approve. Use `release-droptic` before releases; it verifies evidence but never deploys.
 
 ## Coding Style & Naming Conventions
 

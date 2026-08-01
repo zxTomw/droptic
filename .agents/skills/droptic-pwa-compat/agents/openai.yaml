@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Droptic PWA Compatibility'
+  short_description: 'Check browser, PWA, camera, and CSP compatibility'
+  default_prompt: 'Use $droptic-pwa-compat to review this browser-facing change for PWA compatibility.'
