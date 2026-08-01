@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Release Droptic'
+  short_description: 'Verify Droptic release evidence and manual gates'
+  default_prompt: 'Use $release-droptic to assess whether this Droptic release is ready.'
+
+policy:
+  allow_implicit_invocation: false

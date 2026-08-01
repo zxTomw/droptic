@@ -1,0 +1,46 @@
+name: Agent quality feedback
+description: Convert an escaped defect or repeated review finding into a deterministic guardrail.
+title: '[agent-quality]: '
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Observed symptom
+      description: Describe the externally observable failure without including private agent reasoning.
+    validations:
+      required: true
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause
+      description: Identify the technical cause and affected invariant.
+    validations:
+      required: true
+  - type: textarea
+    id: missing-guardrail
+    attributes:
+      label: Missing guardrail
+      description: Explain why existing tests, CI, skills, or review did not prevent the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: prevention
+    attributes:
+      label: Deterministic prevention
+      description: Propose a separate hardening PR that adds or strengthens a test, CI rule, skill, or invariant.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction evidence
+      description: Provide a minimal reproducer and the expected fail-before/pass-after proof.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: This report contains no raw agent transcript, chain-of-thought, secret, or user file.
+          required: true

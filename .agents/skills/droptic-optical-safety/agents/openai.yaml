@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Droptic Optical Safety'
+  short_description: 'Guard protocol, crypto, and optical transfer changes'
+  default_prompt: 'Use $droptic-optical-safety to evaluate this optical-core change and its required tests.'

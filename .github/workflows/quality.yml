@@ -1,0 +1,136 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.3.11
+
+jobs:
+  classify:
+    name: classify
+    runs-on: ubuntu-latest
+    outputs:
+      optical: ${{ steps.scope.outputs.optical }}
+      browser: ${{ steps.scope.outputs.browser }}
+      supplyChain: ${{ steps.scope.outputs.supplyChain }}
+      deployment: ${{ steps.scope.outputs.deployment }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun run quality:classify --base "$BASE_SHA" --head "$HEAD_SHA"
+
+  fast:
+    name: fast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run verify:fast
+
+  browser:
+    name: browser (${{ matrix.browser }})
+    needs: classify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - if: needs.classify.outputs.browser != 'true'
+        run: echo "Browser gate not required for this change."
+      - if: needs.classify.outputs.browser == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - if: needs.classify.outputs.browser == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - if: needs.classify.outputs.browser == 'true'
+        run: bun install --frozen-lockfile
+      - if: needs.classify.outputs.browser == 'true'
+        run: bunx playwright install --with-deps ${{ matrix.browser }}
+      - if: needs.classify.outputs.browser == 'true'
+        run: bunx playwright test --project=${{ matrix.browser }}
+
+  supply_chain:
+    name: supply-chain
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - if: needs.classify.outputs.supplyChain != 'true'
+        run: echo "Supply-chain gate not required for this change."
+      - if: needs.classify.outputs.supplyChain == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - if: needs.classify.outputs.supplyChain == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - if: needs.classify.outputs.supplyChain == 'true'
+        run: bun install --frozen-lockfile
+      - if: needs.classify.outputs.supplyChain == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun run quality:supply-chain --base "$BASE_SHA" --head "$HEAD_SHA"
+
+  deployment:
+    name: deployment
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - if: needs.classify.outputs.deployment != 'true'
+        run: echo "Deployment gate not required for this change."
+      - if: needs.classify.outputs.deployment == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - if: needs.classify.outputs.deployment == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - if: needs.classify.outputs.deployment == 'true'
+        run: bun install --frozen-lockfile
+      - if: needs.classify.outputs.deployment == 'true'
+        run: bun run verify:deploy
+
+  quality:
+    name: quality
+    if: always()
+    needs: [classify, fast, browser, supply_chain, deployment]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every tiered job to succeed
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          FAST_RESULT: ${{ needs.fast.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+          SUPPLY_CHAIN_RESULT: ${{ needs.supply_chain.result }}
+          DEPLOYMENT_RESULT: ${{ needs.deployment.result }}
+        run: |
+          for result in "$CLASSIFY_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$SUPPLY_CHAIN_RESULT" "$DEPLOYMENT_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "A required quality job did not succeed: $result"
+              exit 1
+            fi
+          done

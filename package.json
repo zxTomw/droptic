@@ -3,6 +3,7 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"packageManager": "bun@1.3.11",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -14,7 +15,12 @@
 		"format": "prettier --write .",
 		"test:unit": "vitest run",
 		"test": "bun run test:unit && bun run test:e2e",
-		"test:e2e": "playwright test"
+		"test:e2e": "playwright test",
+		"quality:classify": "bun scripts/quality/classify-changes.ts",
+		"quality:supply-chain": "bun scripts/quality/check-supply-chain.ts",
+		"verify:fast": "bun run check && bun run lint && bun run test:unit",
+		"verify:browser": "bun run test:e2e",
+		"verify:deploy": "bun run build && bunx wrangler deploy --dry-run --outdir .wrangler/dry-run"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
