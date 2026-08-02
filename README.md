@@ -1,5 +1,7 @@
 # Droptic
 
+[Demo](https://droptic.tom-wang3.workers.dev/)
+
 Droptic is a static SvelteKit PWA that transfers a file from a screen to a camera without uploading it. The sender encrypts and RaptorQ-encodes the file in a worker, then displays animated monochrome QR frames. A transfer can be protected by a passphrase or public, meaning anyone who scans the signal can receive it. The receiver scans frames in a bounded worker pipeline, reconstructs the ciphertext, verifies it, and only then offers the file for sharing or saving.
 
 ## Run with Bun
